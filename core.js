@@ -11,7 +11,7 @@ const COMPANIES = {
   rsa:{ code:"RSA", name:"RS Automation", legal:"RS AUTOMATION", logo:"",
         addr:"SF No. 1082/1B, Sri Sai Garden, Kattoor Street, Kalapatty, Coimbatore, Tamil Nadu – 641048",
         phone:"", email:"rsautomation22@gmail.com", gstin:"33FBDPS5189D1ZG",
-        pfCode:"CBCBE3783856000", esiCode:"56001516950000699" }
+        pfCode:"CBCBE3783856000", esiCode:"56001516950000699", mark:"assets/rs-mark.png", brand:"#0000BA" }
 };
 
 /* ================= Settings ================= */
@@ -534,7 +534,7 @@ function slipHTML(e, langOverride){
   }
   const advBal = e.advBal!=null ? `<div class="ab">${lab("advBal",lang)}<span class="a">₹${amt0(e.advBal)}</span></div>` : "";
   const wordsRg = lang==="ta"? wordsTA(ln.net) : lang==="hi"? wordsHI(ln.net) : "";
-  const hdLeft = co.logo ? `<img src="${co.logo}" alt="${esc(co.name)}">` : `<div class="co">${esc(co.legal)}</div>`;
+  const hdLeft = co.logo ? `<img src="${co.logo}" alt="${esc(co.name)}">` : co.mark ? `<div class="lockup"><img src="${co.mark}" alt=""><span class="co" style="color:${co.brand||"#172153"}">${esc(co.legal)}</span></div>` : `<div class="co">${esc(co.legal)}</div>`;
   const addr = [co.addr? esc(co.addr):"", [co.phone?"Ph: "+esc(co.phone):"", co.email? esc(co.email):""].filter(Boolean).join(" · "),
      [co.gstin?"GSTIN: <b>"+esc(co.gstin)+"</b>":"", co.pfCode?"PF Code: <b>"+esc(co.pfCode)+"</b>":""].filter(Boolean).join(" · "),
      co.esiCode?"ESI Code: <b>"+esc(co.esiCode)+"</b>":""].filter(Boolean).join("<br>");
