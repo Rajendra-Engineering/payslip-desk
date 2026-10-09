@@ -1,0 +1,65 @@
+rules_version = '2';
+// Payslip Desk — Firestore security rules
+// Paste into Firebase console → Firestore Database → Rules → Publish.
+// Main owner is fixed here and can never be removed from inside the tool.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn()  { return request.auth != null && request.auth.token.email_verified == true; }
+    function me()        { return request.auth.token.email.lower(); }
+    function isMain()    { return signedIn() && me() == "makudapathycibi@gmail.com"; }
+    function userDoc()   { return /databases/$(database)/documents/users/$(me()); }
+    function isMember()  { return isMain() || (signedIn() && exists(userDoc())); }
+    function isOwner()   { return isMain() || (isMember() && get(userDoc()).data.role == "owner"); }
+    function monthDoc(co, m) { return /databases/$(database)/documents/companies/$(co)/months/$(m); }
+    function monthOpen(co, m) { return !exists(monthDoc(co, m)) || get(monthDoc(co, m)).data.status != "final"; }
+
+    // People list: everyone signed in can read; only owners add/remove; main owner is untouchable.
+    match /users/{email} {
+      allow read: if isMember();
+      allow create, update: if isOwner()
+                            && email != "makudapathycibi@gmail.com"
+                            && request.resource.data.role in ["owner", "manager"];
+      allow delete: if isOwner() && email != "makudapathycibi@gmail.com";
+    }
+
+    // Rates, ceilings, mailer settings: owners only.
+    match /config/{docId} {
+      allow read: if isMember();
+      allow write: if isOwner();
+    }
+
+    // Company details: owners only.
+    match /companies/{co} {
+      allow read: if isMember();
+      allow write: if isOwner();
+
+      // Employee details, language/reason choices, column choices: all members.
+      match /employees/{id} { allow read, write: if isMember(); }
+      match /prefs/{id}     { allow read, write: if isMember(); }
+      match /colmap/{id}    { allow read, write: if isMember(); }
+
+      // Month status: managers can work on a month until it is Final; only owners reopen or delete.
+      match /months/{m} {
+        allow read: if isMember();
+        allow create: if isMember();
+        allow update: if isOwner() || (isMember() && resource.data.status != "final");
+        allow delete: if isOwner();
+
+        // Saved per-employee figures of a finalised month (kept 12 months).
+        match /records/{id} {
+          allow read: if isMember();
+          allow create, update: if isOwner() || (isMember() && monthOpen(co, m));
+          allow delete: if isOwner();
+        }
+      }
+    }
+
+    // Run log: members add entries as themselves; only owners can change or remove entries.
+    match /logs/{id} {
+      allow read: if isMember();
+      allow create: if isMember() && request.resource.data.by == me();
+      allow update, delete: if isOwner();
+    }
+  }
+}
