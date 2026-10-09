@@ -208,7 +208,9 @@ function parseWorkbook(wb){
     for(let r=G.ref.s.r; r<=G.ref.e.r; r++) for(let c=G.ref.s.c; c<=G.ref.e.c; c++){
       const x=G.cell(r,c); if(!x) continue; const t=norm(x.v);
       if(!(SYN_PF.name.includes(t) || custom[t]==="name")) continue;
-      const b = readBlock(G, r, c, sn, custom); if(b && b.rows.length) out.blocks.push(b);
+      const b = readBlock(G, r, c, sn, custom);
+      if(b && b.isMaster){ out.master = Object.assign(out.master||{}, parseMaster({SheetNames:[sn], Sheets:{[sn]:ws}})); out.masterSheet = sn; continue; }
+      if(b && b.rows.length) out.blocks.push(b);
       if(b && b.minCap!=null && out.minCap==null){ out.minCap=b.minCap; out.minCapCell=b.minCapCell; }
     }
   });
@@ -237,10 +239,19 @@ function readBlock(G, r, cName, sheetName, custom){
       if(tg==="ignore"){ used.add(col.c); break; }
       if(tg==="earn"||tg==="ded"){ extras.push({c:col.c, label:col.disp, kind:tg, letter:col.letter}); used.add(col.c); break; }
       if(map[tg]==null){ map[tg]=col.c; mapHdr[tg]=col; used.add(col.c); break; } } }
+  // Template extra columns: headers starting with EARNING / DEDUCTION get their own payslip line ("EARNING: Festival incentive")
+  for(const col of cols){ if(used.has(col.c)) continue; const t0 = col.texts[0]||""; const m = t0.match(/^(EARNING|DEDUCTION)/);
+    if(!m || t0==="DEDUCTION") continue;
+    const kind = m[1]==="EARNING" ? "earn" : "ded";
+    let label = col.disp.replace(/^\s*(earning|deduction)s?\s*\d*\s*[:\-–—]?\s*/i, "").trim();
+    if(!label) label = kind==="earn" ? "Other earning" : "Other deduction";
+    extras.push({c:col.c, label, kind, letter:col.letter}); used.add(col.c); }
   for(const col of cols){ if(used.has(col.c)) continue; for(const t of col.texts){ let hit=null;
       for(const k in syn){ if(map[k]!=null) continue; if(syn[k].includes(t)){ hit=k; break; } }
       if(hit){ map[hit]=col.c; mapHdr[hit]=col; used.add(col.c); break; } } }
   if(map.name==null){ map.name=cName; }
+  // An "Employee details" sheet (name + details, no wages) is read as employee details, not as a payroll block
+  if(map.rate==null && map.days==null && map.payable==null && ["empId","desig","doj","uan","esiNo","lang","advBal"].some(k=>map[k]!=null)) return { isMaster:true, sheet:sheetName };
   if(map.mode==null){ for(let c=c1+1;c<=Math.min(c1+2,G.ref.e.c);c++){ const vals=[]; for(let rr=dataStart; rr<dataStart+6; rr++){ const x=G.cell(rr,c); if(x&&x.v!=null) vals.push(norm(x.v)); }
       if(vals.length && vals.every(v=>MODE_VALS.includes(v))){ map.mode=c; mapHdr.mode={letter:XLSX.utils.encode_col(c), disp:"(no header – AC/CASH)"}; break; } } }
   // data rows
@@ -733,6 +744,7 @@ async function loadFile(kind, file){
     else {
       state.wb[kind] = wb; const p = parseWorkbook(wb); state.parsed[kind] = p;
       if(kind==="salary" && p.month){ state.y=p.month.y; state.m=p.month.m; reparse(); }
+      if(p.master && Object.keys(p.master).length){ state.parsed.master = Object.assign({}, state.parsed.master||{}, p.master); state.files.master = `${file.name} · ${p.masterSheet} sheet`; hook("onMaster", p.master); }
     }
     state.files[kind] = file.name; state.gen=null;
     renderSetup(); refresh();
