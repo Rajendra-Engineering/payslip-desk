@@ -17,16 +17,18 @@ const COMPANIES = {
 /* ================= Settings ================= */
 const DEF = { pfCeilOverride:"", pfWagePct:80, pfEE:12, eps:8.33, edli:0.5, esiCeiling:21000, esiEE:0.75, esiER:3.25,
   baseDays:26, otHoursPerDay:8, dailyOtDiv:12, dailyMax:5000, esiExemptDaily:176, tol:1, newJoinerDays:90,
-  bonusAmt:500, workingDaysOverride:"" };
+  bonusAmt:500, workingDaysOverride:"", esiWagePct:80, esiCoverPct:80, pfFloor:15000, pfHalfPct:50 };
 const SETFIELDS = [
-  ["pfCeilOverride","PF ceiling override (₹, blank = automatic)","text"],["pfWagePct","PF wages as % of gross","number"],
+  ["pfCeilOverride","PF ceiling override (₹, blank = automatic)","text"],["pfWagePct","PF wages: % of gross (up to the floor)","number"],
   ["pfEE","PF employee %","number"],["eps","EPS (pension) %","number"],["edli","EDLI %","number"],
   ["esiCeiling","ESI wage ceiling (₹/month)","number"],["esiEE","ESI employee %","number"],["esiER","ESI employer %","number"],
   ["baseDays","Days in a salary month","number"],["otHoursPerDay","OT: hours per day (monthly staff)","number"],
   ["dailyOtDiv","OT: hours per day (daily-rate staff)","number"],["dailyMax","Rates below this are daily rates (₹)","number"],
   ["esiExemptDaily","ESI employee share exempt up to daily wage (₹)","number"],["tol","Allowed difference (₹)","number"],
   ["newJoinerDays","Days before moving to PF & ESI sheet","number"],
-  ["bonusAmt","Attendance bonus (₹)","number"],["workingDaysOverride","Working days this month (blank = automatic)","text"]];
+  ["bonusAmt","Attendance bonus (₹)","number"],["workingDaysOverride","Working days this month (blank = automatic)","text"],
+  ["esiWagePct","ESI wages: % of gross (+ OT)","number"],["esiCoverPct","ESI cover test: % of monthly salary ≤ ceiling","number"],
+  ["pfFloor","PF wages floor (₹)","number"],["pfHalfPct","PF wages above floor: % of gross","number"]];
 const store = {
   get(k,d){ try{ const v = localStorage.getItem("psd:"+k); return v==null? d : JSON.parse(v); }catch(e){ return d; } },
   set(k,v){ try{ localStorage.setItem("psd:"+k, JSON.stringify(v)); }catch(e){} }
@@ -63,7 +65,7 @@ const sum = a => a.reduce((s,x)=>s+(+x||0),0);
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MONTHS_TA = ["ஜனவரி","பிப்ரவரி","மார்ச்","ஏப்ரல்","மே","ஜூன்","ஜூலை","ஆகஸ்ட்","செப்டம்பர்","அக்டோபர்","நவம்பர்","டிசம்பர்"];
 const MONTHS_HI = ["जनवरी","फ़रवरी","मार्च","अप्रैल","मई","जून","जुलाई","अगस्त","सितंबर","अक्टूबर","नवंबर","दिसंबर"];
-function pfCeilingAuto(y,m){ const k=y*100+m; if(k<202609) return 15000; if(k===202609) return Math.round(15000*16/30 + 25000*14/30); return 25000; }
+function pfCeilingAuto(y,m){ const k=y*100+m; if(k<202609) return 15000; return 25000; }
 function pfCeiling(){ const o = parseFloat(S.pfCeilOverride); return isFinite(o)&&o>0 ? o : pfCeilingAuto(state.y,state.m); }
 function workingDaysAuto(y,m){ const d=new Date(y,m,0).getDate(); let n=0; for(let i=1;i<=d;i++) if(new Date(y,m-1,i).getDay()!==0) n++; return n; }
 function workingDays(){ const o=parseFloat(S.workingDaysOverride); return isFinite(o)&&o>0 ? o : workingDaysAuto(state.y,state.m); }
@@ -128,6 +130,8 @@ const L = {
   ot:["Overtime wages","கூடுதல் நேர ஊதியம்","ओवरटाइम वेतन"],
   bonus:["Attendance bonus","வருகை ஊக்கத்தொகை","उपस्थिति बोनस"],
   round:["Rounding off","முழுமையாக்கல்","राउंड ऑफ"],
+  payType:["Pay type","ஊதிய வகை","वेतन प्रकार"], ptfixed:["Fixed salary","நிலையான சம்பளம்","निश्चित वेतन"], ptot:["Salary with OT","OT உடன் சம்பளம்","ओवरटाइम सहित वेतन"], ptdaily:["Daily wage (12-hour day)","தினக்கூலி (12 மணி நேரம்)","दैनिक मजदूरी (12 घंटे)"],
+  monthDays:["Working days in month","மாத வேலை நாட்கள்","माह के कार्य दिवस"],
   totalEarn:["Total earnings","மொத்த வருமானம்","कुल आय"],
   esi:["ESI – employee share","ESI – தொழிலாளர் பங்கு","ESI – कर्मचारी अंश"],
   pf:["PF – employee share","PF – தொழிலாளர் பங்கு","PF – कर्मचारी अंश"],
@@ -157,14 +161,14 @@ function labTxt(en, rg, lang){ return lang==="en"||!rg ? `<span class="lab"><spa
 
 /* ================= Excel columns ================= */
 const SYN_PF = {
-  sno:["SNO","SLNO","SERIALNO"], name:["NAME","EMPLOYEENAME"], rate:["12HRS","8HRS","RATE","SALARYRATE","MONTHLYSALARY","FIXEDSALARY","SALARY"],
-  days:["NOOFWORKINGDAYS","WORKINGDAYS","DAYSWORKED","NOOFDAYS","DAYS"], otHrs:["OTHRS","OTHOURS"], basic:["BASICSALARY","BASIC","EARNEDBASIC"],
+  sno:["SNO","SLNO","SERIALNO"], name:["NAME","EMPLOYEENAME"], rate:["8HOURSSALARYFORAMONTH","12HRS","8HRS","RATE","SALARYRATE","MONTHLYSALARY","FIXEDSALARY","SALARY"],
+  days:["DAYSPRESENT","NOOFWORKINGDAYS","WORKINGDAYS","DAYSWORKED","NOOFDAYS","DAYS"], monthDays:["NOOFWORKINGDAYSINTHEMONTH","WORKINGDAYSINTHEMONTH"], payType:["FIXEDSALARYOROT","PAYTYPE","SALARYTYPE"], esiERc:["ESIER"], otHrs:["OTHRS","OTHOURS"], basic:["BASICSALARY","BASIC","EARNEDBASIC"],
   gross:["GROSSWAGES","GROSS"], esi:["ESIC","ESI"], pf:["EPF","PF"], ot:["OTWAGES","OTSALARY"], advance:["ADVANCEDEDUCTION","ADVANCE"],
   payable:["PAYABLEWAGES","WAGESPAYABLE","NETPAY"], esiWages:["ESIWAGES"], esiEEc:["ESIEE"], pfWages:["EPFWAGES","PFWAGES"], pfEEc:["EPFEE"],
   eps:["EPSER","EPS"], epfER:["EPFER"], edli:["EDLI"] };
 const SYN_NO = {
-  sno:["SNO","SLNO","SERIALNO"], name:["NAME","EMPLOYEENAME"], rate:["BASICSALARY","RATE","SALARY","12HRS","8HRS","SALARYRATE"],
-  days:["NOOFWORKINGDAYS","WORKINGDAYS","DAYSWORKED","NOOFDAYS","DAYS"], otHrs:["OT","OTHRS","OTHOURS"], basic:["GROSSWAGES","EARNEDWAGES","GROSS"],
+  sno:["SNO","SLNO","SERIALNO"], name:["NAME","EMPLOYEENAME"], rate:["8HOURSSALARYFORAMONTH","BASICSALARY","RATE","SALARY","12HRS","8HRS","SALARYRATE"],
+  days:["DAYSPRESENT","NOOFWORKINGDAYS","WORKINGDAYS","DAYSWORKED","NOOFDAYS","DAYS"], monthDays:["NOOFWORKINGDAYSINTHEMONTH","WORKINGDAYSINTHEMONTH"], payType:["FIXEDSALARYOROT","PAYTYPE","SALARYTYPE"], otHrs:["OT","OTHRS","OTHOURS"], basic:["GROSSWAGES","EARNEDWAGES","GROSS"],
   ot:["OTSALARY","OTWAGES"], net:["NETSALARY"], advance:["ADVANCE","ADVANCEDEDUCTION"], payable:["WAGESPAYABLE","PAYABLEWAGES","NETPAY"] };
 const SYN_OPT = { empId:["EMPID","EMPLOYEEID","EMPCODE","EMPNO","EMPLOYEECODE"], desig:["DESIGNATION","ROLE"], doj:["DATEOFJOINING","DOJ","JOININGDATE","JOINEDON","DATEOFJOININGDDMMYYYY"],
   uan:["UAN","UANNO"], esiNo:["ESINO","ESINUMBER","IPNO","ESIIPNO"], lang:["LANGUAGE","LANG","LANGUAGEENTAHI"], mode:["PAYMENTMODE","MODE","PAIDBY","PAYMENT"],
@@ -175,7 +179,7 @@ const KNOWN_IGNORE = ["WAGESAFTERESICPF","NETWAGESBEFOREADVANCE","BASIDA","BASIC
 const FIELD_LABEL = { sno:"S.No", name:"Employee name", rate:"Wage rate", days:"Days worked", otHrs:"OT hours", basic:"Wages for days worked", gross:"Gross wages",
   esi:"ESI deduction", pf:"PF deduction", ot:"OT wages", net:"Net salary", advance:"Advance deduction", payable:"Payable wages", esiWages:"ESI wages",
   esiEEc:"ESI EE", pfWages:"EPF wages", pfEEc:"EPF EE", eps:"EPS (employer)", epfER:"EPF (employer)", edli:"EDLI", empId:"Employee ID", desig:"Designation",
-  doj:"Date of joining", uan:"UAN", esiNo:"ESI number", lang:"Language", mode:"Payment mode", advBal:"Advance balance", bonus:"Attendance bonus" };
+  doj:"Date of joining", uan:"UAN", monthDays:"Working days in the month", payType:"Fixed salary or OT", esiERc:"ESI ER", esiNo:"ESI number", lang:"Language", mode:"Payment mode", advBal:"Advance balance", bonus:"Attendance bonus" };
 const MODE_VALS = ["AC","CASH","BANK","NEFT","UPI","GPAY","CHEQUE","IMPS","ACCOUNT"];
 
 function sheetGrid(ws){
@@ -345,13 +349,21 @@ function evaluate(row, block, ms, ceil){
   const col = k => row.letter(k) ? `column ${row.letter(k)}` : "";
 
   e.rate = v.rate; e.days = v.days; e.otHrs = v.otHrs;
+  const v2 = block.map.monthDays!=null || block.map.payType!=null;   // September-2026 format: Fixed/OT/Daily, working days, days present
+  e.method = v2 ? "v2" : "v1";
   e.rateType = e.rate>0 && e.rate < S.dailyMax ? "daily" : "monthly";
+  if(v2){ const pt = norm(row.raw.payType);
+    e.payType = pt.includes("DAILY") ? "daily" : pt.startsWith("FIX") ? "fixed" : pt ? "ot" : (e.rateType==="daily" ? "daily" : "ot");
+    e.rateType = e.payType==="daily" ? "daily" : "monthly";
+    e.monthDays = v.monthDays>0 ? v.monthDays : workingDays(); }
   e.monthlyEquiv = e.rateType==="daily" ? e.rate*S.baseDays : e.rate;
-  e.basic = v.basic;
+  e.basic = (v2 && t==="pf" && block.map.gross!=null) ? v.gross : v.basic;
+  const expOTf = hrs => v2 ? (e.payType==="fixed" ? 0 : e.payType==="daily" ? e.rate/S.dailyOtDiv*hrs : e.rate/S.baseDays/S.otHoursPerDay*hrs)
+                           : (e.rateType==="daily" ? e.rate/S.dailyOtDiv*hrs : e.rate/S.baseDays/S.otHoursPerDay*hrs);
   const cOT = constList(f.ot).map(a=>({a, k:"ot"}));
   // values-only sheet: OT that is exactly one bonus above the expected OT is treated as a bonus hidden in OT
-  { const r0=v.rate, rt = r0>0 && r0 < S.dailyMax ? "daily":"monthly"; const eo = rt==="daily" ? r0/S.dailyOtDiv*v.otHrs : r0/S.baseDays/S.otHoursPerDay*v.otHrs;
-    if(!f.ot && S.bonusAmt && r0>0 && Math.abs(v.ot - eo - S.bonusAmt) <= (+S.tol||1)) cOT.push({a:+S.bonusAmt, k:"otv"}); }
+  { const eo = expOTf(v.otHrs);
+    if(!f.ot && S.bonusAmt && v.rate>0 && Math.abs(v.ot - eo - S.bonusAmt) <= (+S.tol||1)) cOT.push({a:+S.bonusAmt, k:"otv"}); }
   const cPay = constList(f.payable).map(a=>({a, k:"payable"}));
   const cNet = t==="nopf" ? constList(f.net).map(a=>({a, k:"net"})) : [];
   const consts = [...cOT, ...cPay, ...cNet];
@@ -391,7 +403,7 @@ function evaluate(row, block, ms, ceil){
     if(e.addReason) flag("info", `${txt} Shown on the payslip as “${e.addReason}”.`);
     else flag("act", `${txt} Type what it is for; this becomes its line on the payslip.`, {block:true, needsAdd:true});
   }
-  const wd = workingDays();
+  const wd = v2 ? e.monthDays : workingDays();
   if(e.bonus>0 && e.days < wd){
     if(mo.bonusOk) flag("info", `Attendance bonus confirmed with ${numfmt(e.days)} of ${wd} working days.`);
     else flag("act", `Attendance bonus given, but worked ${numfmt(e.days)} of ${wd} working days. Tick to confirm it is correct.`, {block:true, needsBonus:true});
@@ -402,17 +414,24 @@ function evaluate(row, block, ms, ceil){
   if(e.days===0 && Math.abs(e.payable)<0.005){ flag("info","No days worked this month. Left out of the payslips (tick Include to add it)."); e.defaultInclude=false; }
   else e.defaultInclude=true;
   if(e.payable < -0.004) flag("err",`Payable is negative (${fmt2(e.payable)}). Advance recovery of ${fmt0(e.advance)} is more than the wages earned.`);
+  if(v2){
+    const expGross = e.payType==="daily" ? Math.round(e.rate*e.days) : (e.monthDays>0 ? Math.round(e.rate/e.monthDays*e.days) : 0);
+    if(e.rate>0 && Math.abs(expGross - e.basic) > tol) flag("warn",`Gross wages are ${fmt2(e.basic)} in the sheet; expected ${fmt0(expGross)} (${e.payType==="daily"? `₹${numfmt(e.rate)} × ${numfmt(e.days)} days` : `₹${numfmt(e.rate)} ÷ ${numfmt(e.monthDays)} working days × ${numfmt(e.days)} days present`}, rounded).`);
+    if(e.payType==="fixed"){ if(e.otHrs>0 || Math.abs(e.ot)>tol) flag("warn",`Fixed salary staff don't get OT, but ${e.otHrs?numfmt(e.otHrs)+" OT hours":""}${e.otHrs&&Math.abs(e.ot)>tol?" and ":""}${Math.abs(e.ot)>tol?fmt2(e.ot)+" OT wages":""} ${e.otHrs&&Math.abs(e.ot)>tol?"are":"is"} entered. Change the pay type to OT, or clear the OT.`); }
+    else { const xo = expOTf(e.otHrs); if(e.rate>0 && Math.abs(xo - e.ot) > tol) flag("warn",`OT wages are ${fmt2(e.ot)}; expected ${fmt2(xo)} for ${numfmt(e.otHrs)} hrs (${e.payType==="daily"? `daily rate ÷ ${S.dailyOtDiv} hrs` : `salary ÷ ${S.baseDays} ÷ ${S.otHoursPerDay} hrs`}).`); }
+  }
   const expBasic = e.rateType==="daily" ? e.rate*e.days : e.rate/S.baseDays*e.days;
-  if(e.rate>0 && Math.abs(expBasic - e.basic) > tol) flag("warn",`Wages for days worked are ${fmt2(e.basic)} in the sheet; expected ${fmt2(expBasic)} (${e.rateType==="daily"? `₹${numfmt(e.rate)} × ${numfmt(e.days)} days` : `₹${numfmt(e.rate)} ÷ ${S.baseDays} × ${numfmt(e.days)} days`}).`);
-  if(t==="pf" && block.map.gross!=null && Math.abs(v.gross - v.basic) > tol) flag("warn",`Gross wages (${fmt2(v.gross)}) differ from wages for days worked (${fmt2(v.basic)}). If OT is added to gross and again to net, it is counted twice.`);
+  if(!v2 && e.rate>0 && Math.abs(expBasic - e.basic) > tol) flag("warn",`Wages for days worked are ${fmt2(e.basic)} in the sheet; expected ${fmt2(expBasic)} (${e.rateType==="daily"? `₹${numfmt(e.rate)} × ${numfmt(e.days)} days` : `₹${numfmt(e.rate)} ÷ ${S.baseDays} × ${numfmt(e.days)} days`}).`);
+  if(!v2 && t==="pf" && block.map.gross!=null && Math.abs(v.gross - v.basic) > tol) flag("warn",`Gross wages (${fmt2(v.gross)}) differ from wages for days worked (${fmt2(v.basic)}). If OT is added to gross and again to net, it is counted twice.`);
   const expOT = e.rateType==="daily" ? e.rate/S.dailyOtDiv*e.otHrs : e.rate/S.baseDays/S.otHoursPerDay*e.otHrs;
-  if(e.rate>0 && Math.abs(expOT - e.ot) > tol){
+  if(!v2 && e.rate>0 && Math.abs(expOT - e.ot) > tol){
     const alt = e.rateType==="daily" ? e.rate/S.otHoursPerDay*e.otHrs : null;
     flag("warn",`OT wages are ${fmt2(e.ot)}; expected ${fmt2(expOT)} for ${numfmt(e.otHrs)} hrs (${e.rateType==="daily"? `daily rate ÷ ${S.dailyOtDiv} hrs` : `rate ÷ ${S.baseDays} ÷ ${S.otHoursPerDay} hrs`}).` + (alt!=null && Math.abs(alt-e.ot)<=tol ? ` The sheet uses an ${S.otHoursPerDay}-hour day for this person.` : ""));
   }
   if(t==="nopf" && block.map.net!=null){ const netExp = e.basic + v.ot; if(Math.abs((v.net - sum(cNet.map(x=>x.a))) - netExp) > tol) flag("warn",`Net salary column (${fmt2(v.net)}) is not wages + OT salary (${fmt2(netExp)}).`); }
 
   // ---- statutory ----
+  if(v2){ evaluateV2Statutory(e, row, block, ceil, flag, tol); const order = {act:0, err:1, warn:2, info:3}; e.flags.sort((a,b)=>order[a.sev]-order[b.sev]); return e; }
   const pfWagesExp = Math.min(ceil, Math.round(e.basic*S.pfWagePct/100));
   e.pfWagesExp = pfWagesExp; e.pfExp = Math.round(pfWagesExp*S.pfEE/100);
   const esiCovered = e.monthlyEquiv <= S.esiCeiling;
@@ -462,6 +481,72 @@ function evaluate(row, block, ms, ceil){
   return e;
 }
 
+/* September-2026 ESI / PF rules (company sheet):
+   gross = rate ÷ working days × days present (Daily: rate × days), rounded
+   ESI: covered if salary × 80% ≤ 21,000 (Daily: 80% of rate × days); ESI wages = 80% of gross + OT; EE 0.75% / ER 3.25%, rounded up
+   PF wages = 80% of gross if ≤ 15,000, else max(15,000, 50% of gross); capped at the ceiling; rounded
+   EPF EE 12%; EPS ER 8.33%; EPF ER = EPF EE − EPS ER; EDLI 0.5% (separate employer charge) */
+function evaluateV2Statutory(e, row, block, ceil, flag, tol){
+  const v=row.v, t=row.type, has = k => block.map[k]!=null;
+  const col = k => row.letter(k) ? `column ${row.letter(k)}` : "";
+  const R80 = Math.round(e.basic*S.esiWagePct/100);
+  const coverBase = e.payType==="daily" ? R80 : e.rate*S.esiCoverPct/100;
+  const covered = coverBase <= S.esiCeiling;
+  e.esiCovered = covered; e.esiCoverBase = coverBase; e.monthlyEquiv = e.payType==="daily" ? e.basic : e.rate;
+  const esiW = covered ? R80 + e.ot : 0;
+  e.esiExp = ceilR(esiW*S.esiEE/100); const esiERexp = ceilR(esiW*S.esiER/100);
+  const P80 = Math.round(e.basic*S.pfWagePct/100);
+  const pfW = Math.round(Math.min(ceil, P80 > S.pfFloor ? Math.max(S.pfFloor, e.basic*S.pfHalfPct/100) : P80));
+  e.pfWagesExp = pfW; e.pfExp = Math.round(pfW*S.pfEE/100);
+  const epsExp = Math.round(pfW*S.eps/100), edliExp = Math.round(pfW*S.edli/100);
+  e.missing = [];
+  if(t==="pf"){
+    if(e.basic>0){
+      // ESI
+      if(covered && e.esi===0 && e.esiExp>0) e.missing.push("ESI");
+      else if(covered && Math.abs(e.esi-e.esiExp)>tol) flag("warn",`ESI is ${fmt0(e.esi)}; expected ${fmt0(e.esiExp)} (${S.esiEE}% of ESI wages ${fmt2(esiW)} = ${S.esiWagePct}% of gross ${fmt0(R80)} + OT ${fmt2(e.ot)}, rounded up).`);
+      if(!covered && e.esi>0) flag("warn",`${e.payType==="daily"?"80% of this month's wages":"80% of the salary"} (${fmt0(coverBase)}) is above ₹${numfmt(S.esiCeiling)}, so no ESI is due, yet ${fmt0(e.esi)} ESI was deducted.`);
+      if(has("esiWages") && Math.abs(v.esiWages - esiW) > tol) flag("warn",`ESI wages are ${fmt2(v.esiWages)} in the sheet; expected ${fmt2(esiW)}${covered?` (${S.esiWagePct}% of gross + OT)`:" (not covered)"}.`);
+      if(has("esiEEc") && Math.abs(v.esiEEc - e.esi) > 0.5) flag("warn",`ESIC deduction (${col("esi")}: ${fmt0(e.esi)}) is not the same as ESI EE (${col("esiEEc")}: ${fmt0(v.esiEEc)}).`);
+      if(has("esiERc") && e.esi>0 && Math.abs(v.esiERc - esiERexp) > tol) flag("warn",`ESI ER is ${fmt0(v.esiERc)}; expected ${fmt0(esiERexp)} (${S.esiER}% of ESI wages, rounded up).`);
+      // PF
+      if(e.pf===0 && e.pfExp>0) e.missing.push("PF");
+      else if(e.pf>0 && Math.abs(e.pf-e.pfExp)>tol) flag("warn",`EPF is ${fmt0(e.pf)}; expected ${fmt0(e.pfExp)} (${S.pfEE}% of EPF wages ${fmt0(pfW)}).`);
+      if(has("pfWages") && e.pf>0){
+        if(Math.abs(v.pfWages - Math.round(v.pfWages))>0.004) flag("warn",`EPF wages are ${fmt2(v.pfWages)}, not a whole rupee. EPF wages should be rounded (expected ${fmt0(pfW)}).`);
+        else if(Math.abs(v.pfWages - pfW) > tol) flag("warn",`EPF wages are ${fmt0(v.pfWages)}; expected ${fmt0(pfW)} (${P80 > S.pfFloor ? `${S.pfHalfPct}% of gross, at least ₹${numfmt(S.pfFloor)}` : `${S.pfWagePct}% of gross`}, capped at ₹${numfmt(ceil)}).`);
+      }
+      if(has("pfEEc") && Math.abs(v.pfEEc - e.pf) > 0.5) flag("warn",`EPF deduction (${col("pf")}: ${fmt0(e.pf)}) is not the same as EPF EE (${col("pfEEc")}: ${fmt0(v.pfEEc)}).`);
+      if(e.pf>0 && has("eps")){
+        if(e.eps===0) flag("info","No pension (EPS) share; the full employer share goes to PF. Fine if the employee is 58+ or not eligible for EPS.");
+        else if(Math.abs(e.eps - epsExp) > tol) flag("warn",`EPS ER is ${fmt0(e.eps)}; expected ${fmt0(epsExp)} (${S.eps}% of EPF wages).`);
+        if(has("epfER") && Math.abs((e.eps + e.epfER) - (has("pfEEc")? v.pfEEc : e.pf)) > 0.5) flag("warn",`EPS ER + EPF ER = ${fmt0(e.eps+e.epfER)}, but EPF EE is ${fmt0(has("pfEEc")? v.pfEEc : e.pf)}. EPF ER should be EPF EE − EPS ER (${fmt0((has("pfEEc")? v.pfEEc : e.pf) - e.eps)}).`);
+      }
+      if(e.pf>0 && has("edli") && Math.abs(e.edli - edliExp) > tol) flag("warn",`EDLI is ${fmt0(e.edli)}; expected ${fmt0(edliExp)} (${S.edli}% of EPF wages).`);
+      if(e.missing.length){
+        const txt = `No ${e.missing.join(" or ")} deducted although ${e.missing.length>1?"they apply":"it applies"} (expected ${e.missing.map(x=>x==="PF"? "EPF "+fmt0(e.pfExp) : "ESI "+fmt0(e.esiExp)).join(", ")}).`;
+        flag(e.reason? "info":"warn", e.reason? txt+" Reason recorded: "+REASONS[e.reason][0]+"." : txt+" Choose a reason; it is printed on the payslip.", {needsReason:true});
+      }
+    }
+  } else {
+    const within = [];
+    if(e.basic>0 && P80 <= ceil) within.push("PF"); if(e.basic>0 && covered) within.push("ESI");
+    e.missing = within.length? within : ["PF","ESI"];
+    if(within.length){
+      const txt = `Not on PF/ESI, but ${within.join(" and ")} would apply to these wages.`;
+      flag(e.reason? "info":"warn", e.reason? txt+" Reason recorded: "+REASONS[e.reason][0]+"." : txt+" Choose a reason; it is printed on the payslip.", {needsReason:true});
+    } else { if(!e.reason) e.reasonAuto="above"; }
+    if(e.doj){
+      const monthEnd = new Date(state.y, state.m, 0);
+      const d = Math.floor((monthEnd - e.doj)/86400000);
+      if(d > S.newJoinerDays) flag("warn",`Joined ${fmtDate(e.doj)}: ${d} days by month end. The ${S.newJoinerDays}-day period is over; move to the PF & ESI sheet.`);
+      else flag("info",`Joined ${fmtDate(e.doj)}: day ${Math.max(d,0)} of ${S.newJoinerDays}.`);
+    } else flag("info","No joining date. Add it in the employee details file to track the 3-month period.");
+  }
+  e.esiWagesShow = has("esiWages") ? v.esiWages : (e.esi>0 ? esiW : 0);
+  e.esiER = e.esi>0 ? (has("esiERc") ? v.esiERc : esiERexp) : 0;
+}
+
 function blocked(e){ return e.flags.some(f=>f.block); }
 function statusOf(e){
   const sess = state.session[e.key] || {};
@@ -478,8 +563,8 @@ const included = e => { const s=state.session[e.key]||{}; return s.include!=null
 /* ================= Payslip ================= */
 function slipLines(e){
   const earn=[], ded=[];
-  earn.push({k:"basic", a:rnd(e.basic), x: e.rateType==="daily"? `${numfmt(e.days)} × ₹${numfmt(e.rate)}` : `₹${numfmt(e.rate)} ÷ ${S.baseDays} × ${numfmt(e.days)}`});
-  if(Math.abs(e.ot)>0.004 || e.otHrs) earn.push({k:"ot", a:rnd(e.ot), x: e.otHrs? `${numfmt(e.otHrs)} hrs` : ""});
+  earn.push({k:"basic", a:rnd(e.basic), x: e.rateType==="daily"? `${numfmt(e.days)} × ₹${numfmt(e.rate)}` : `₹${numfmt(e.rate)} ÷ ${e.method==="v2"? numfmt(e.monthDays) : S.baseDays} × ${numfmt(e.days)}`});
+  if(Math.abs(e.ot)>0.004 || (e.otHrs && e.payType!=="fixed")) earn.push({k:"ot", a:rnd(e.ot), x: e.otHrs? `${numfmt(e.otHrs)} hrs` : ""});
   if(e.bonus>0) earn.push({k:"bonus", a:rnd(e.bonus)});
   e.extras.filter(x=>x.kind==="earn").forEach(x=>earn.push({k:"txt", t:x.label, a:rnd(x.amt)}));
   if(e.addOther>0) earn.push({k:"txt", t:e.addReason||"Other addition", a:rnd(e.addOther)});
@@ -515,8 +600,10 @@ function slipHTML(e, langOverride){
   if(e.uan) cellI("uan", esc(e.uan));
   if(e.esiNo) cellI("esiNo", esc(e.esiNo));
   cellI("rate", `₹${numfmt(e.rate)} <span style="font-weight:400">${esc(tr(e.rateType==="daily"?"perDay":"perMonth","en"))}${lang!=="en"?" · "+esc(tr(e.rateType==="daily"?"perDay":"perMonth",lang)):""}</span>`);
+  if(e.method==="v2" && e.payType) cellI("payType", esc(tr("pt"+e.payType,"en")) + (lang!=="en"? " · "+esc(tr("pt"+e.payType,lang)) : ""));
+  if(e.method==="v2" && e.payType!=="daily") cellI("monthDays", esc(numfmt(e.monthDays)));
   cellI("days", esc(numfmt(e.days)));
-  cellI("otHrs", esc(numfmt(e.otHrs||0)));
+  if(e.payType!=="fixed") cellI("otHrs", esc(numfmt(e.otHrs||0)));
   if(e.mode) cellI("mode", esc(tr(e.mode,"en")) + (lang!=="en"? " · "+esc(tr(e.mode,lang)) : ""));
   if(info.length%2) info[info.length-1] = info[info.length-1].replace('class="c"','class="c wide"');
   const pad = (arr, n) => { const out=arr.map(line); for(let i=arr.length;i<n;i++) out.push(`<div class="ln"><div>&nbsp;<span class="x">&nbsp;</span></div><div></div></div>`); return out.join(""); };
@@ -664,7 +751,7 @@ function renderReview(){
           <div class="kv"><span>Source</span><span>${esc(e.sheet)}, row ${e.row} (${e.src==="nopf"?"without-PF/ESI file":"salary sheet"})</span>
             <span>Rate</span><span>₹${numfmt(e.rate)} ${e.rateType==="daily"?"per day":"per month"}</span>
             <span>Payable in Excel</span><span>${fmt2(e.payable)} → payslip ${fmt0(lnz.net)}</span>
-            ${e.group==="pf"?`<span>PF wages (sheet / expected)</span><span>₹${numfmt(e.pfWagesCol)} / ₹${numfmt(e.pfWagesExp)}</span><span>ESI covered</span><span>${e.esiCovered?"Yes":"No"} (₹${numfmt(e.monthlyEquiv)}/month vs ₹${numfmt(S.esiCeiling)})</span>`:""}
+            ${e.group==="pf"?`<span>PF wages (sheet / expected)</span><span>₹${numfmt(e.pfWagesCol)} / ₹${numfmt(e.pfWagesExp)}</span><span>ESI covered</span><span>${e.esiCovered?"Yes":"No"} (${e.method==="v2" ? `₹${numfmt(e.esiCoverBase)} = ${S.esiCoverPct}% of ${e.payType==="daily"?"this month's wages":"salary"}` : `₹${numfmt(e.monthlyEquiv)}/month`} vs ₹${numfmt(S.esiCeiling)})</span>`:""}
           </div>
         </div>
         <div class="ctrls">
@@ -808,7 +895,7 @@ async function generate(){
   }catch(err){ console.error(err); state.gen = {busy:false, done:0, total:inc.length, error:"Could not make the payslips: "+(err.message||err)}; renderGen(); }
 }
 /* Saved copy of one employee's payslip figures (for Records / re-making later) */
-const SNAP_KEYS = ["name","group","rate","rateType","days","otHrs","basic","ot","bonus","extras","addOther","addReason","esi","pf","advance","payable","esiCovered","missing","reason","reasonAuto","empId","desig","uan","esiNo","mode","advBal","lang","eps","epfER","edli","pfWagesCol","esiWagesShow","esiER"];
+const SNAP_KEYS = ["method","payType","monthDays","name","group","rate","rateType","days","otHrs","basic","ot","bonus","extras","addOther","addReason","esi","pf","advance","payable","esiCovered","missing","reason","reasonAuto","empId","desig","uan","esiNo","mode","advBal","lang","eps","epfER","edli","pfWagesCol","esiWagesShow","esiER"];
 function snapshotEmp(e){ const o={}; SNAP_KEYS.forEach(k=>{ const v=e[k]; o[k] = v===undefined? null : v; }); o.doj = e.doj? e.doj.toISOString() : null; o.net = slipLines(e).net; return o; }
 function empFromSnap(o){ const e=Object.assign({}, o); e.doj = o.doj? new Date(o.doj) : null; e.extras = o.extras||[]; e.missing = o.missing||[]; e.flags=[]; return e; }
 
