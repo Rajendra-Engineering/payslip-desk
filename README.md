@@ -3,7 +3,7 @@
 Monthly payslip checker and PDF maker for **Rajendra Engineering** and **RS Automation**.
 
 - Hosted free on GitHub Pages. Login with Google (Gmail) through Firebase.
-- The salary Excel is read **in the browser** and never uploaded. Firebase stores only: people and roles, rates, company details, employee details, language/reason choices, column choices, month status, the activity log, and the figures of **Final** months (kept 12 months, then archived by email and deleted).
+- The salary Excel is read **in the browser** and never uploaded. Firebase stores only: people and roles, rates, company details, employee details, language/reason choices, column choices, month status, the activity log, and the figures of **Final** months (kept 12 months, then emailed as an archive to the address set under *Company details → Archive email* – default `makudapathycibi@gmail.com` – and deleted).
 - Main owner: `makudapathycibi@gmail.com` (fixed in `firestore.rules`, cannot be removed).
 
 ## Files
@@ -25,7 +25,7 @@ Monthly payslip checker and PDF maker for **Rajendra Engineering** and **RS Auto
 3. **Security rules** – Firebase console → Firestore Database → Rules → replace everything with `firestore.rules` → Publish.
 4. **First login** – open the site, sign in as the main owner. The tool saves the default rates and company details on first login.
 5. **People** – add owners and up to 5 managers by Gmail under *People*.
-6. **Archive email (optional, recommended)** – follow the steps at the top of `apps-script/Code.gs`, signed in as the company Gmail. Paste the web app URL and secret word under *Company details → Archive email*, then *Send a test email*.
+6. **Archive email (optional, recommended)** – follow the steps at the top of `apps-script/Code.gs`, signed in as the Gmail that should send the archives. Under *Company details → Archive email*, enter where archives go (can be changed later), paste the web app URL and secret word, then *Send a test email*.
 
 ## Roles
 

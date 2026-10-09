@@ -23,9 +23,10 @@ service cloud.firestore {
       allow delete: if isOwner() && email != "makudapathycibi@gmail.com";
     }
 
-    // Rates, ceilings, mailer settings: owners only.
+    // Rates and ceilings: everyone reads, owners change.
     match /config/{docId} {
-      allow read: if isMember();
+      allow read: if isMember() && docId != "mailer";
+      allow read: if isOwner();
       allow write: if isOwner();
     }
 

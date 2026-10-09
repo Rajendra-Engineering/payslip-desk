@@ -76,7 +76,7 @@ function mockAdapter(kind){
     onAuth: cb => { setTimeout(()=> cb(sessionStorage.getItem("mockout") ? null : { email, name: kind, verified:true }), 0); },
     signIn: async () => { sessionStorage.removeItem("mockout"); location.reload(); },
     signOut: async () => { sessionStorage.setItem("mockout","1"); location.reload(); },
-    get: async p => { if(!member() && !p.startsWith("users/"+email)) deny(); if(!member()) deny(); return W[p] ? clone(W[p]) : null; },
+    get: async p => { if(!member()) deny(); if(p==="config/mailer" && !owner()) deny(); return W[p] ? clone(W[p]) : null; },
     set: async (p, d, m=true) => { if(!canWrite(p, "set", d)) deny(); W[p] = m ? merge(W[p]||{}, clone(d)) : clone(d); save(); },
     del: async p => { if(!canWrite(p, "del")) deny(); delete W[p]; save(); },
     list: async (p, o={}) => { if(!member()) deny(); const n = p.split("/").length; let r = Object.keys(W).filter(k => k.startsWith(p+"/") && k.split("/").length===n+1).map(k => ({ id:k.split("/").pop(), ...clone(W[k]) }));
@@ -146,7 +146,7 @@ async function loadShared(){
   const settings = await DB.get("config/settings");
   if(settings){ const s = Object.assign({}, DEF); for(const k in DEF) if(settings[k]!==undefined) s[k]=settings[k]; S = s; }
   else if(isOwner()) await DB.set("config/settings", { ...DEF });
-  cache.mailer = (await DB.get("config/mailer")) || {};
+  if(isOwner()){ try{ cache.mailer = (await DB.get("config/mailer")) || {}; }catch(e){ cache.mailer = {}; } }
   for(const co of Object.keys(COMPANIES)){
     const d = await DB.get(`companies/${co}`);
     const fields = ["name","legal","addr","phone","email","gstin","pfCode","esiCode"];
@@ -196,8 +196,8 @@ function renderRecords(){
   const remade = ui.remade && ui.remade.co===co ? `<div class="finalbox"><div><b>${esc(ymLabel(ui.remade.ym))}: ${ui.remade.count} payslips made again from the saved records.</b></div><div class="row"><button class="btn primary" type="button" data-act="saveRemakeZip">Save payslips (.zip)</button><button class="btn" type="button" data-act="saveRemakeAll">Save print file (one PDF)</button></div></div>` : "";
   const logs = cache.logs.map(l=>`<tr><td>${esc(when(l.at))}</td><td>${esc(l.name||l.by)}</td><td>${esc({made:"Made payslips",final:"Marked Final",reopen:"Reopened",archived:"Archived and deleted",remade:"Re-made payslips"}[l.action]||l.action)}</td><td>${esc(l.month?ymLabel(l.month):"")}</td><td class="n">${l.count!=null?esc(l.count):""}</td><td class="n">${l.total!=null?"₹"+Number(l.total).toLocaleString("en-IN"):""}</td></tr>`).join("");
   $("#recBody").innerHTML = `
-    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:12px">${coSeg()}<span class="hint">Final months are kept for ${KEEP_MONTHS} months, then archived to the company email and deleted.</span></div>
-    ${due.length && isOwner()? `<div class="notice warn" style="margin-bottom:12px"><b>${due.length} month${due.length>1?"s are":" is"} older than ${KEEP_MONTHS} months:</b> ${due.map(m=>esc(ymLabel(m.id))).join(", ")}. Archive ${due.length>1?"them":"it"} to ${esc(COMPANIES[co].email)} and delete from the tool.</div>`:""}
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:12px">${coSeg()}<span class="hint">Final months are kept for ${KEEP_MONTHS} months, then archived by email and deleted.</span></div>
+    ${due.length && isOwner()? `<div class="notice warn" style="margin-bottom:12px"><b>${due.length} month${due.length>1?"s are":" is"} older than ${KEEP_MONTHS} months:</b> ${due.map(m=>esc(ymLabel(m.id))).join(", ")}. Archive ${due.length>1?"them":"it"} to ${esc(archiveTo())} and delete from the tool.</div>`:""}
     ${ui.recMsg? `<div class="notice info" style="margin-bottom:12px">${ui.recMsg}</div>`:""}
     ${remade}${arch}
     <div class="tablewrap"><table class="rev"><thead><tr><th>Month</th><th>Status</th><th>Payslips made</th><th>Final / started</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="hint" style="padding:16px">No months yet for ${esc(COMPANIES[co].name)}. Months appear here once a salary sheet is uploaded.</td></tr>`}</tbody></table></div>
@@ -236,6 +236,7 @@ function archiveWorkbook(emps, md, ym, co){
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Payslips"); XLSX.utils.book_append_sheet(wb, info, "Details");
   return new Blob([XLSX.write(wb, {bookType:"xlsx", type:"array"})], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
 }
+const archiveTo = () => (cache.mailer && cache.mailer.to) || MAIN_OWNER;
 const blobB64 = blob => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=rej; r.readAsDataURL(blob); });
 
 /* ---------------- People ---------------- */
@@ -266,8 +267,9 @@ function renderCompany(){
     <div class="setgrid">${CO_FIELDS.map(([f,l])=>`<div class="field"${f==="addr"?' style="grid-column:1/-1"':""}><label for="co_${k}_${f}">${esc(l)}</label><input type="text" id="co_${k}_${f}" name="${f}" value="${esc(c[f]||"")}" ${dis}></div>`).join("")}</div>
     ${isOwner()? `<button class="btn primary sm" type="submit" style="margin-top:10px">Save ${esc(c.name)}</button>`:""}</form>`).join("") +
   `<form class="panel" id="mailerForm"><h3 style="margin:0 0 6px;font-family:var(--f-display);font-stretch:80%">Archive email (Google Apps Script)</h3>
-    <p class="hint" style="margin:0 0 10px">Archives are emailed from the company Gmail through a small Apps Script. Set it up once using the README, then paste its web app URL and the secret word here.</p>
-    <div class="setgrid"><div class="field" style="grid-column:1/-1"><label for="mailUrl">Apps Script web app URL</label><input type="text" id="mailUrl" value="${esc(cache.mailer.url||"")}" ${dis} placeholder="https://script.google.com/macros/s/…/exec"></div>
+    <p class="hint" style="margin:0 0 10px">Archives of both companies are emailed through a small Apps Script. Set it up once using the README, then paste its web app URL and the secret word here. You can change the address any time.</p>
+    <div class="setgrid"><div class="field" style="grid-column:1/-1"><label for="mailTo">Send archives to</label><input type="text" id="mailTo" value="${esc(archiveTo())}" ${dis} placeholder="name@gmail.com"></div>
+    <div class="field" style="grid-column:1/-1"><label for="mailUrl">Apps Script web app URL</label><input type="text" id="mailUrl" value="${esc(cache.mailer.url||"")}" ${dis} placeholder="https://script.google.com/macros/s/…/exec"></div>
     <div class="field"><label for="mailTok">Secret word</label><input type="text" id="mailTok" value="${isOwner()?esc(cache.mailer.token||""):""}" ${dis}></div></div>
     ${isOwner()? `<div class="row" style="margin-top:10px"><button class="btn primary sm" type="submit">Save</button><button class="btn sm" type="button" data-act="mailTest" ${cache.mailer.url?"":"disabled"}>Send a test email</button></div>`:""}</form>
     ${ui.coMsg? `<div class="notice info" style="margin-top:10px">${esc(ui.coMsg)}</div>`:""}`;
@@ -340,9 +342,9 @@ const ACTIONS = {
   arcSave: async t => { const a=ui.archive; const i=+t.dataset.i; const r = await saveFile(a.files[i].name, a.files[i].blob); if(r==="saved"){ a.saved[i]=true; renderRecords(); } },
   arcMail: async () => {
     const a=ui.archive; if(a.tooBig){ toast("Too large to email. Download the files instead.", true); return; }
-    a.busy=true; a.msg=`Emailing ${COMPANIES[a.co].email}…`; renderRecords();
-    try{ await sendMail(COMPANIES[a.co].email, `Payslip archive – ${COMPANIES[a.co].name} – ${ymLabel(a.ym)}`, `Attached: payslip figures${a.pdf?" and payslips":""} for ${ymLabel(a.ym)}, archived from Payslip Desk by ${me.email}.`, a.files);
-      a.mailed=true; a.msg=`Emailed to ${COMPANIES[a.co].email}.`; }
+    a.busy=true; a.msg=`Emailing ${archiveTo()}…`; renderRecords();
+    try{ await sendMail(archiveTo(), `Payslip archive – ${COMPANIES[a.co].name} – ${ymLabel(a.ym)}`, `Attached: payslip figures${a.pdf?" and payslips":""} for ${ymLabel(a.ym)}, archived from Payslip Desk by ${me.email}.`, a.files);
+      a.mailed=true; a.msg=`Emailed to ${archiveTo()}.`; }
     catch(e){ a.msg = "Email failed: "+(e.message||e)+" Download the files instead."; }
     a.busy=false; renderRecords();
   },
@@ -352,14 +354,14 @@ const ACTIONS = {
     try{ const recs = await DB.list(`companies/${a.co}/months/${a.ym}/records`);
       await DB.batch([...recs.map(r=>({op:"del", p:`companies/${a.co}/months/${a.ym}/records/${r.id}`})), {op:"del", p:`companies/${a.co}/months/${a.ym}`}]);
       await DB.add("logs", { co:a.co, month:a.ym, action:"archived", by:me.email, name:me.name, at:new Date().toISOString(), count:recs.length });
-      ui.recMsg = `${ymLabel(a.ym)} was archived${a.mailed?` to ${esc(COMPANIES[a.co].email)}`:""} and deleted from the tool.`; ui.archive=null;
+      ui.recMsg = `${ymLabel(a.ym)} was archived${a.mailed?` to ${esc(archiveTo())}`:""} and deleted from the tool.`; ui.archive=null;
     }catch(e){ a.busy=false; a.msg="Could not delete: "+(e.message||e); renderRecords(); return; }
     loadRecords();
   },
   rmUser: async t => { const em=t.dataset.email; if(ui.rmAsk!==em){ ui.rmAsk=em; renderPeople(); return; } ui.rmAsk=null;
     try{ await DB.del(`users/${em}`); ui.peopleMsg=`✓ Removed ${em}.`; }catch(e){ ui.peopleMsg = "Could not remove: "+(e.message||e); } loadPeople(); },
   mailTest: async () => { ui.coMsg="Sending test email…"; renderCompany();
-    try{ await sendMail(COMPANIES[state.company].email, "Payslip Desk test email", `This is a test from Payslip Desk, sent by ${me.email}. Archive emails will arrive like this.`, []); ui.coMsg=`Test email sent to ${COMPANIES[state.company].email}.`; }
+    try{ await sendMail(archiveTo(), "Payslip Desk test email", `This is a test from Payslip Desk, sent by ${me.email}. Archive emails will arrive like this.`, []); ui.coMsg=`Test email sent to ${archiveTo()}.`; }
     catch(e){ ui.coMsg="Test failed: "+(e.message||e); } renderCompany(); }
 };
 document.addEventListener("submit", async ev => {
@@ -375,7 +377,8 @@ document.addEventListener("submit", async ev => {
   if(f.dataset.coForm){ ev.preventDefault(); const co=f.dataset.coForm; const d={}; CO_FIELDS.forEach(([k])=> d[k]=f.elements[k].value.trim());
     try{ await DB.set(`companies/${co}`, d); Object.assign(COMPANIES[co], d); ui.coMsg=`Saved ${d.name}. New payslips will use these details.`; renderSetup(); renderGen(); }
     catch(e){ ui.coMsg="Could not save: "+(e.message||e); } renderCompany(); return; }
-  if(f.id==="mailerForm"){ ev.preventDefault(); const d={ url:$("#mailUrl").value.trim(), token:$("#mailTok").value.trim() };
+  if(f.id==="mailerForm"){ ev.preventDefault(); const d={ to:$("#mailTo").value.trim().toLowerCase(), url:$("#mailUrl").value.trim(), token:$("#mailTok").value.trim() };
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.to)){ ui.coMsg="Enter a full email address for archives."; renderCompany(); return; }
     try{ await DB.set("config/mailer", d, false); cache.mailer=d; ui.coMsg="Archive email settings saved."; }catch(e){ ui.coMsg="Could not save: "+(e.message||e); } renderCompany(); }
 });
 
