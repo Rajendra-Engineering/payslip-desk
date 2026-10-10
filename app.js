@@ -171,7 +171,9 @@ async function loadShared(){
 
 /* ---------------- Tabs ---------------- */
 function renderTabs(){
-  const tabs = [["payslips","Payslips"],["records","Records"],["people","People"],["company","Company details"]];
+  // Managers only see Payslips and Records; People and Company details (incl. the archive email) are for owners.
+  const tabs = [["payslips","Payslips"],["records","Records"]].concat(isOwner()? [["people","People"],["company","Company details"]] : []);
+  if(!tabs.some(([k])=>k===ui.tab)) ui.tab = "payslips";
   $("#tabs").innerHTML = tabs.map(([k,t])=>`<button type="button" data-act="tab" data-tab="${k}" aria-pressed="${ui.tab===k}">${t}</button>`).join("");
   ["payslips","records","people","company"].forEach(k => $("#tab-"+k).hidden = ui.tab!==k);
   $("#who").innerHTML = `<span class="role ${me.role}">${me.role==="main"?"Main owner":me.role==="owner"?"Owner":"Manager"}</span><span class="em">${esc(me.email)}</span><button class="btn sm" type="button" data-act="signOut">Sign out</button>`;
@@ -296,7 +298,7 @@ async function sendMail(to, subject, body, files){
 
 /* ---------------- Actions ---------------- */
 const ACTIONS = {
-  tab: t => { ui.tab = t.dataset.tab; ui.recMsg = ""; ui.clearLogAsk = false; renderTabs(); if(ui.tab==="records") loadRecords(); if(ui.tab==="people") loadPeople(); if(ui.tab==="company") renderCompany(); window.scrollTo(0,0); },
+  tab: t => { if(!isOwner() && (t.dataset.tab==="people" || t.dataset.tab==="company")) return; ui.tab = t.dataset.tab; ui.recMsg = ""; ui.clearLogAsk = false; renderTabs(); if(ui.tab==="records") loadRecords(); if(ui.tab==="people") loadPeople(); if(ui.tab==="company") renderCompany(); window.scrollTo(0,0); },
   goRecords: () => ACTIONS.tab({dataset:{tab:"records"}}),
   signOut: () => DB.signOut(),
   finalAsk: () => { ui.finalAsk = true; renderGen(); },

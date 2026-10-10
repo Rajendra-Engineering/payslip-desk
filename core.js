@@ -326,7 +326,7 @@ function buildEmployees(){
     const co = COMPANIES[state.company];
     if(P.title){ const t=norm(P.title); const other = Object.entries(COMPANIES).find(([k,c])=>k!==state.company && t.includes(norm(c.legal)));
       if(other) state.blockers.push(`The salary sheet title says <b>${esc(P.title)}</b>, but <b>${esc(co.name)}</b> is selected in Step 1.`); }
-    if(P.minCap!=null && Math.abs(P.minCap-ceil)>0.5) state.notices.push({sev:"err", html:`The EPF WAGES formula (cell ${esc(P.minCapCell)}) caps PF wages at <b>₹${numfmt(P.minCap)}</b>, but the ceiling for ${MONTHS[state.m-1]} ${state.y} is <b>₹${numfmt(ceil)}</b>. Change <code>MIN(${P.minCap},…)</code> to <code>MIN(${ceil},…)</code> in every row.`});
+    if(P.minCap!=null && !state.example && Math.abs(P.minCap-ceil)>0.5) state.notices.push({sev:"err", html:`The EPF WAGES formula (cell ${esc(P.minCapCell)}) caps PF wages at <b>₹${numfmt(P.minCap)}</b>, but the ceiling for ${MONTHS[state.m-1]} ${state.y} is <b>₹${numfmt(ceil)}</b>. Change <code>MIN(${P.minCap},…)</code> to <code>MIN(${ceil},…)</code> in every row.`});
     if(!P.blocks.length) state.blockers.push(`No employee rows found in ${esc(state.files.salary)}. The sheet needs a header cell that says <b>NAME</b>.`);
   }
   if(state.parsed.nopf && !state.parsed.nopf.blocks.length) state.blockers.push(`No employee rows found in ${esc(state.files.nopf)}. The sheet needs a header cell that says <b>NAME</b>.`);
