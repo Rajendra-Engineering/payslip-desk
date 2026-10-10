@@ -118,12 +118,22 @@ H.genExtra = () => {
   const g = state.gen; if(!g || g.busy || g.error) return "";
   const md = cache.monthDoc; if(md && md.status==="final") return "";
   const ml = `${MONTHS[state.m-1]} ${state.y}`;
-  if(!ui.finalAsk) return `<div class="finalbox"><div><b>Payslips are correct and handed out?</b><div class="hint">Mark ${esc(ml)} as Final to save the figures for ${KEEP_MONTHS} months (so any payslip can be made again) and lock the month against changes.</div></div><button class="btn" type="button" data-act="finalAsk">Mark ${esc(ml)} as Final</button></div>`;
+  if(!ui.finalAsk) return `<div class="finalbox"><div><b>Payslips are correct and handed out?</b><div class="hint">The figures are saved, so these payslips can be made again from Records. Mark ${esc(ml)} as Final to lock the month against changes; Final months are kept for ${KEEP_MONTHS} months.</div></div><button class="btn" type="button" data-act="finalAsk">Mark ${esc(ml)} as Final</button></div>`;
   return `<div class="finalbox ask"><div><b>Lock ${esc(ml)} for ${esc(COMPANIES[state.company].name)}?</b><div class="hint">${state.emps.filter(included).length} payslips will be saved. After this only an owner can reopen the month.</div></div><div class="row"><button class="btn primary" type="button" data-act="finalDo">Yes, mark Final</button><button class="btn" type="button" data-act="finalCancel">Cancel</button></div></div>`;
 };
+/* Saves every payslip's figures under the month, tagged with this run, so Records → Re-make works for Open and Final months alike.
+   Only records whose run matches the month's run are used, so people left out of a later run are never re-made. */
+function recordOps(co, ym, inc, at){
+  const c = COMPANIES[co]; const coSnap = { name:c.name, legal:c.legal, addr:c.addr, phone:c.phone, email:c.email, gstin:c.gstin, pfCode:c.pfCode, esiCode:c.esiCode };
+  const ops = inc.map((e,i)=>({ p:`companies/${co}/months/${ym}/records/${norm(e.name)}_${e.group}`, d:Object.assign(snapshotEmp(e), {order:i, run:at}), merge:false }));
+  return { ops, month:{ run:at, settings:Object.assign({},S), company:coSnap } };
+}
 H.onGenerated = ({count, total}) => {
   const co = state.company, ym = curYm(); const rec = { by:me.email, name:me.name, at:new Date().toISOString(), count, total };
-  DB.set(`companies/${co}/months/${ym}`, { status:"open", lastMade:rec }).catch(()=>{});
+  const { ops, month } = recordOps(co, ym, state.emps.filter(included), rec.at);
+  ops.push({ p:`companies/${co}/months/${ym}`, d:Object.assign({ status:"open", lastMade:rec }, month) });
+  DB.batch(ops).then(()=>{ cache.monthDoc = Object.assign({}, cache.monthDoc||{}, { status:"open", lastMade:rec }, month); toast(`Saved the figures of ${count} payslips. They can be made again from Records.`); })
+    .catch(fail("Could not save the payslip figures (the PDFs are still ready to save)"));
   DB.add("logs", { co, month:ym, action:"made", by:me.email, name:me.name, at:rec.at, count, total }).catch(()=>{});
   ui.finalAsk = false;
 };
@@ -187,7 +197,7 @@ function renderRecords(){
     const fin = m.status==="final" ? `${esc(m.finalByName||m.finalBy)}<br><span class="hint">${esc(when(m.finalAt))}</span>` : (m.lock ? `<span class="hint">Started by ${esc(m.lock.name||m.lock.by)} · ${esc(when(m.lock.at))}</span>` : "");
     const busy = ui.recBusy && ui.recBusy.ym===m.id;
     const acts = [];
-    if(m.status==="final") acts.push(`<button class="btn sm" type="button" data-act="remake" data-ym="${m.id}" ${ui.recBusy?"disabled":""}>Re-make payslips</button>`);
+    if(canRemake(m)) acts.push(`<button class="btn sm" type="button" data-act="remake" data-ym="${m.id}" ${ui.recBusy?"disabled":""}>Re-make payslips</button>`);
     if(m.status==="final" && isOwner()) acts.push(`<button class="btn sm" type="button" data-act="reopen" data-ym="${m.id}" ${ui.recBusy?"disabled":""}>Reopen</button>`);
     if(m.status==="final" && isOwner()) acts.push(`<button class="btn sm${monthAgeDue(m.id)?" primary":""}" type="button" data-act="archive" data-ym="${m.id}" ${ui.recBusy?"disabled":""}>Archive${monthAgeDue(m.id)?" (due)":""}</button>`);
     return `<tr><td><b>${esc(ymLabel(m.id))}</b>${monthAgeDue(m.id)&&m.status==="final"?`<br><span class="hint">Older than ${KEEP_MONTHS} months</span>`:""}</td><td>${st}</td><td>${made}</td><td>${fin}</td><td><div class="row" style="gap:6px">${acts.join("")}</div>${busy?`<div class="hint" style="margin-top:6px">${esc(ui.recBusy.msg||"")}</div>`:""}</td></tr>`;
@@ -201,7 +211,7 @@ function renderRecords(){
     ${ui.recMsg? `<div class="notice info" style="margin-bottom:12px">${ui.recMsg}</div>`:""}
     ${remade}${arch}
     <div class="tablewrap"><table class="rev"><thead><tr><th>Month</th><th>Status</th><th>Payslips made</th><th>Final / started</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="hint" style="padding:16px">No months yet for ${esc(COMPANIES[co].name)}. Months appear here once a salary sheet is uploaded.</td></tr>`}</tbody></table></div>
-    <h3 style="margin:20px 0 8px;font-family:var(--f-display);font-stretch:80%">Activity log</h3>
+    <div class="row" style="justify-content:space-between;align-items:center;margin:20px 0 8px"><h3 style="margin:0;font-family:var(--f-display);font-stretch:80%">Activity log</h3>${isOwner() && cache.logs.length? `<button class="btn sm" type="button" data-act="clearLog" ${ui.recBusy?"disabled":""}>${ui.clearLogAsk?"Click again to clear the log of both companies":"Clear activity log"}</button>`:""}</div>
     <div class="tablewrap"><table class="rev"><thead><tr><th>When</th><th>Who</th><th>What</th><th>Month</th><th class="n">Slips</th><th class="n">Net pay</th></tr></thead><tbody>${logs || `<tr><td colspan="6" class="hint" style="padding:16px">Nothing yet.</td></tr>`}</tbody></table></div>`;
 }
 async function withMonthContext(ym, md, fn){
@@ -211,7 +221,9 @@ async function withMonthContext(ym, md, fn){
     return await fn(); }
   finally{ S = saved.S; state.y=saved.y; state.m=saved.m; state.example=saved.ex; Object.assign(COMPANIES[state.company], saved.co); }
 }
-async function getRecordEmps(co, ym){ const recs = (await DB.list(`companies/${co}/months/${ym}/records`)).sort((a,b)=>(a.order||0)-(b.order||0)); return recs.map(r=>empFromSnap(r)); }
+async function getRecordEmps(co, ym, md){ const run = md && md.run;
+  const recs = (await DB.list(`companies/${co}/months/${ym}/records`)).filter(r => !run || r.run===run).sort((a,b)=>(a.order||0)-(b.order||0)); return recs.map(r=>empFromSnap(r)); }
+const canRemake = m => m.status==="final" || !!(m.run && m.settings);
 
 /* ---------------- Archive ---------------- */
 function archiveBox(){
@@ -284,7 +296,7 @@ async function sendMail(to, subject, body, files){
 
 /* ---------------- Actions ---------------- */
 const ACTIONS = {
-  tab: t => { ui.tab = t.dataset.tab; renderTabs(); if(ui.tab==="records") loadRecords(); if(ui.tab==="people") loadPeople(); if(ui.tab==="company") renderCompany(); window.scrollTo(0,0); },
+  tab: t => { ui.tab = t.dataset.tab; ui.recMsg = ""; ui.clearLogAsk = false; renderTabs(); if(ui.tab==="records") loadRecords(); if(ui.tab==="people") loadPeople(); if(ui.tab==="company") renderCompany(); window.scrollTo(0,0); },
   goRecords: () => ACTIONS.tab({dataset:{tab:"records"}}),
   signOut: () => DB.signOut(),
   finalAsk: () => { ui.finalAsk = true; renderGen(); },
@@ -293,9 +305,8 @@ const ACTIONS = {
     const co = state.company, ym = curYm(); const inc = state.emps.filter(included);
     if(!inc.length || inc.some(blocked) || state.blockers.length){ toast("Fix the items marked Action needed first.", true); return; }
     const at = new Date().toISOString(); const total = inc.reduce((s,e)=>s+slipLines(e).net,0);
-    const c = COMPANIES[co]; const coSnap = { name:c.name, legal:c.legal, addr:c.addr, phone:c.phone, email:c.email, gstin:c.gstin, pfCode:c.pfCode, esiCode:c.esiCode };
-    const ops = inc.map((e,i)=>({ p:`companies/${co}/months/${ym}/records/${norm(e.name)}_${e.group}`, d:Object.assign(snapshotEmp(e), {order:i}), merge:false }));
-    ops.push({ p:`companies/${co}/months/${ym}`, d:{ status:"final", finalBy:me.email, finalByName:me.name, finalAt:at, count:inc.length, total, settings:Object.assign({},S), company:coSnap, lock:null } });
+    const c = COMPANIES[co]; const { ops, month } = recordOps(co, ym, inc, at);
+    ops.push({ p:`companies/${co}/months/${ym}`, d:Object.assign({ status:"final", finalBy:me.email, finalByName:me.name, finalAt:at, count:inc.length, total, lock:null }, month) });
     try{ await DB.batch(ops); await DB.add("logs", { co, month:ym, action:"final", by:me.email, name:me.name, at, count:inc.length, total });
       ui.finalAsk=false; cache.ctxKey=""; await loadMonth(co, ym); toast(`${MONTHS[state.m-1]} ${state.y} is now Final for ${c.name}.`); }
     catch(e){ fail("Could not mark the month Final")(e); }
@@ -303,12 +314,20 @@ const ACTIONS = {
   remake: async t => {
     const ym = t.dataset.ym, co = state.company; const md = cache.months.find(m=>m.id===ym); if(!md) return;
     ui.recBusy = { ym, msg:"Loading saved figures…" }; ui.remade=null; renderRecords();
-    try{ const emps = await getRecordEmps(co, ym);
+    try{ const emps = await getRecordEmps(co, ym, md);
       const out = await withMonthContext(ym, md, () => makePdfs(emps, { onStep:(i,e)=>{ ui.recBusy.msg = `Making payslip ${i+1} of ${emps.length}: ${e.name}`; renderRecords(); } }));
       ui.remade = { co, ym, count:emps.length, ...out };
       DB.add("logs", { co, month:ym, action:"remade", by:me.email, name:me.name, at:new Date().toISOString(), count:emps.length }).catch(()=>{});
     }catch(e){ fail("Could not re-make the payslips")(e); }
     ui.recBusy = null; renderRecords();
+  },
+  clearLog: async () => {
+    if(!isOwner()) return;
+    if(!ui.clearLogAsk){ ui.clearLogAsk=true; renderRecords(); return; }
+    ui.clearLogAsk=false;
+    try{ const all = await DB.list("logs"); await DB.batch(all.map(l=>({op:"del", p:`logs/${l.id}`}))); ui.recMsg = `Activity log cleared (${all.length} entries, both companies).`; }
+    catch(e){ fail("Could not clear the activity log")(e); }
+    loadRecords();
   },
   saveRemakeZip: async () => { const r=ui.remade; await saveFile(`${r.tag}_Payslips.zip`, r.zip); },
   saveRemakeAll: async () => { const r=ui.remade; await saveFile(`${r.tag}_Payslips_Print.pdf`, r.all); },
@@ -317,7 +336,7 @@ const ACTIONS = {
     if(ui.reopenAsk!==ym){ ui.reopenAsk=ym; t.textContent="Click again to reopen"; return; }
     ui.reopenAsk=null; ui.recBusy={ym, msg:"Reopening…"}; renderRecords();
     try{ const recs = await DB.list(`companies/${co}/months/${ym}/records`);
-      await DB.batch([...recs.map(r=>({op:"del", p:`companies/${co}/months/${ym}/records/${r.id}`})), { p:`companies/${co}/months/${ym}`, d:{ status:"open", reopenedBy:me.email, reopenedAt:new Date().toISOString() } }]);
+      await DB.batch([...recs.map(r=>({op:"del", p:`companies/${co}/months/${ym}/records/${r.id}`})), { p:`companies/${co}/months/${ym}`, d:{ status:"open", run:null, reopenedBy:me.email, reopenedAt:new Date().toISOString() } }]);
       await DB.add("logs", { co, month:ym, action:"reopen", by:me.email, name:me.name, at:new Date().toISOString() });
       ui.recMsg = `${ymLabel(ym)} is open again. Upload the corrected salary sheet in Payslips, make the payslips, and mark it Final again.`;
       cache.ctxKey=""; if(ym===curYm()) loadMonth(co, ym);
@@ -328,7 +347,7 @@ const ACTIONS = {
   arcCancel: () => { ui.archive=null; renderRecords(); },
   arcBuild: async () => {
     const a = ui.archive; a.pdf = !!($("#arcPdf")||{}).checked; a.busy=true; a.msg="Preparing…"; renderRecords();
-    try{ const md = cache.months.find(m=>m.id===a.ym); const emps = await getRecordEmps(a.co, a.ym);
+    try{ const md = cache.months.find(m=>m.id===a.ym); const emps = await getRecordEmps(a.co, a.ym, md);
       const tag = `${COMPANIES[a.co].code}_${a.ym}`;
       a.files = [{ name:`${tag}_Payslip_Records.xlsx`, blob: archiveWorkbook(emps, md, a.ym, a.co) }];
       if(a.pdf){ const out = await withMonthContext(a.ym, md, () => makePdfs(emps, { scale:1.4, quality:0.72, onStep:(i)=>{ a.msg=`Making payslip PDF ${i+1} of ${emps.length}…`; renderRecords(); } }));
